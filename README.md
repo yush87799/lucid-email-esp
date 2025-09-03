@@ -44,7 +44,7 @@ pnpm run dev
 
 ### Backend (.env)
 ```
-MONGODB_URI=your_mongodb_connection_string
+MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/email-esp
 IMAP_HOST=your_imap_host
 IMAP_PORT=993
 IMAP_USER=your_email@example.com
@@ -53,8 +53,20 @@ IMAP_PASS=your_email_password
 
 ### Frontend (.env.local)
 ```
-NEXT_PUBLIC_API_URL=your_backend_api_url
+NEXT_PUBLIC_API_URL=https://your-render-app.onrender.com
 ```
+
+## Database Setup
+
+### Local Development
+- The app works without MongoDB locally (uses simulation mode)
+- For full functionality, install MongoDB locally or use MongoDB Atlas
+
+### Production Deployment
+1. **Create MongoDB Atlas cluster** (free tier available)
+2. **Get connection string** from Atlas dashboard
+3. **Set MONGODB_URI** in Render environment variables
+4. **Set NEXT_PUBLIC_API_URL** in Vercel environment variables
 
 ## API Endpoints
 
