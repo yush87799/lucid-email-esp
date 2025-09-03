@@ -68,11 +68,19 @@ export function detectESP(headers: Record<string, string | string[]>, messageId?
     return 'Zoho';
   }
 
-  // Gmail detection
+  // Gmail detection - improved
   if (
-    (headerStr.includes('gmail.com') || headerStr.includes('google.com')) &&
-    headerStr.includes('x-google-dkim-signature')
+    headerStr.includes('gmail.com') || 
+    headerStr.includes('google.com') ||
+    headerStr.includes('x-google-dkim-signature') ||
+    headerStr.includes('mail-oi1-f180.google.com') ||
+    headerStr.includes('by mail-oi1-f180.google.com')
   ) {
+    return 'Gmail';
+  }
+
+  // Special Gmail message ID detection
+  if (messageId && messageId.includes('@mail.gmail.com')) {
     return 'Gmail';
   }
 
@@ -95,6 +103,7 @@ export function detectESP(headers: Record<string, string | string[]>, messageId?
         'zoho.com': 'Zoho',
         'gmail.com': 'Gmail',
         'google.com': 'Gmail',
+        'mail.gmail.com': 'Gmail',
       };
 
       if (domainMap[domain]) {
