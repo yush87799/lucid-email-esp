@@ -32,6 +32,28 @@ const DOMAIN_TO_PROVIDER: Record<string, string> = {
   'yahoo-inc.com': 'Yahoo',
 };
 
+/**
+ * Find the provider for a domain, including subdomain matching
+ * e.g., mail.gmail.com -> Gmail, mail-sor-f41.google.com -> Gmail
+ */
+function findProviderForDomain(domain: string): string | null {
+  const normalizedDomain = domain.toLowerCase();
+  
+  // First try exact match
+  if (DOMAIN_TO_PROVIDER[normalizedDomain]) {
+    return DOMAIN_TO_PROVIDER[normalizedDomain];
+  }
+  
+  // Then try subdomain matching
+  for (const [providerDomain, provider] of Object.entries(DOMAIN_TO_PROVIDER)) {
+    if (normalizedDomain.endsWith('.' + providerDomain)) {
+      return provider;
+    }
+  }
+  
+  return null;
+}
+
 export function detectESP(
   headers: Record<string, string | string[]>,
   messageId?: string,
@@ -65,7 +87,7 @@ export function detectESP(
   const dkimDomain = extractDkimD(dkimSignatures);
   if (dkimDomain) {
     signals.dkim_d = dkimDomain;
-    const provider = DOMAIN_TO_PROVIDER[dkimDomain];
+    const provider = findProviderForDomain(dkimDomain);
     if (provider) {
       providerScores[provider] = (providerScores[provider] || 0) + 5;
       reasons.push(`DKIM d=${dkimDomain}`);
@@ -81,12 +103,17 @@ export function detectESP(
     'received',
   );
   for (const received of receivedHeaders) {
-    for (const [domain, provider] of Object.entries(DOMAIN_TO_PROVIDER)) {
-      if (received.toLowerCase().includes(domain)) {
-        providerScores[provider] = (providerScores[provider] || 0) + 4;
-        reasons.push(`Received via ${domain}`);
-        signals.received_domain = domain;
-        break;
+    // Extract domain-like patterns from received headers
+    const domainMatches = received.match(/([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g);
+    if (domainMatches) {
+      for (const domain of domainMatches) {
+        const provider = findProviderForDomain(domain);
+        if (provider) {
+          providerScores[provider] = (providerScores[provider] || 0) + 4;
+          reasons.push(`Received via ${domain}`);
+          signals.received_domain = domain;
+          break;
+        }
       }
     }
   }
@@ -95,7 +122,7 @@ export function detectESP(
   const messageIdDomain = extractMessageIdDomain(messageId);
   if (messageIdDomain) {
     signals.message_id_domain = messageIdDomain;
-    const provider = DOMAIN_TO_PROVIDER[messageIdDomain];
+    const provider = findProviderForDomain(messageIdDomain);
     if (provider) {
       providerScores[provider] = (providerScores[provider] || 0) + 3;
       reasons.push(`Message-ID domain ${messageIdDomain}`);
@@ -114,7 +141,7 @@ export function detectESP(
     const returnPathDomain = extractReturnPathDomain(returnPathHeaders[0]);
     if (returnPathDomain) {
       signals.return_path_domain = returnPathDomain;
-      const provider = DOMAIN_TO_PROVIDER[returnPathDomain];
+      const provider = findProviderForDomain(returnPathDomain);
       if (provider) {
         providerScores[provider] = (providerScores[provider] || 0) + 2;
         reasons.push(`Return-Path domain ${returnPathDomain}`);
@@ -162,7 +189,7 @@ export function detectESP(
     ),
   );
   if (authResults.spf?.domain) {
-    const provider = DOMAIN_TO_PROVIDER[authResults.spf.domain];
+    const provider = findProviderForDomain(authResults.spf.domain);
     if (provider) {
       providerScores[provider] = (providerScores[provider] || 0) + 1;
       reasons.push(`SPF domain ${authResults.spf.domain}`);
