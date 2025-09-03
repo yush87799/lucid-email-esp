@@ -37,8 +37,8 @@ pnpm run dev
 
 ## Deployment
 
-- **Frontend**: Deploy to Vercel
-- **Backend**: Deploy to Render
+- **Frontend**: Deploy to Vercel https://lucid-email-esp.vercel.app/
+- **Backend**: Deploy to Render https://lucid-email-esp.onrender.com
 
 ## Environment Variables
 
