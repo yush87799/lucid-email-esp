@@ -12,10 +12,22 @@ export class ImapService {
   private readonly logger = new Logger(ImapService.name);
   private client: ImapFlow | null = null;
   private isConnected = false;
+  private connectionRetryCount = 0;
+  private maxRetries = 3;
+  private lastConnectionTime = 0;
+  private connectionCooldown = 5000; // 5 seconds between connection attempts
 
   async connect(): Promise<void> {
     if (this.isConnected && this.client) {
       return;
+    }
+
+    // Implement connection cooldown to prevent rapid reconnection attempts
+    const now = Date.now();
+    if (now - this.lastConnectionTime < this.connectionCooldown) {
+      const waitTime = this.connectionCooldown - (now - this.lastConnectionTime);
+      this.logger.log(`Connection cooldown: waiting ${waitTime}ms before reconnecting...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
     }
 
     // Clean up any existing connection
@@ -48,13 +60,19 @@ export class ImapService {
           pass,
         },
         logger: false, // Disable ImapFlow's internal logging
-        // Connection timeout settings
-        socketTimeout: 30000, // 30 seconds
-        greetingTimeout: 10000, // 10 seconds
+        // Optimized connection timeout settings
+        socketTimeout: 60000, // 60 seconds (increased for stability)
+        greetingTimeout: 15000, // 15 seconds (increased for reliability)
+        // Faster connection establishment
+        tls: {
+          rejectUnauthorized: false, // For development/testing
+        },
       });
 
       await this.client.connect();
       this.isConnected = true;
+      this.connectionRetryCount = 0; // Reset retry count on successful connection
+      this.lastConnectionTime = Date.now();
       this.logger.log('IMAP connection established');
 
       // Handle connection close events
@@ -69,8 +87,22 @@ export class ImapService {
         // Don't throw here, let the calling code handle reconnection
       });
     } catch (error) {
-      this.logger.error('Failed to connect to IMAP:', error);
-      throw error;
+      this.connectionRetryCount++;
+      this.lastConnectionTime = Date.now();
+      this.logger.error(`Failed to connect to IMAP (attempt ${this.connectionRetryCount}/${this.maxRetries}):`, error);
+      
+      if (this.connectionRetryCount >= this.maxRetries) {
+        this.logger.error('Maximum connection retries exceeded');
+        throw new Error(`Failed to connect to IMAP after ${this.maxRetries} attempts: ${error.message}`);
+      }
+      
+      // Wait before retrying with exponential backoff
+      const retryDelay = Math.min(1000 * Math.pow(2, this.connectionRetryCount - 1), 10000);
+      this.logger.log(`Retrying connection in ${retryDelay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, retryDelay));
+      
+      // Recursive retry
+      return this.connect();
     }
   }
 
@@ -79,23 +111,27 @@ export class ImapService {
     maxWaitTime: number = 300000,
   ): Promise<LocatedMessage & { envelope: any }> {
     const startTime = Date.now();
-    const pollInterval = 15000; // Check every 15 seconds (increased from 10)
+    const pollInterval = 5000; // Check every 5 seconds (reduced for faster response)
     let lastConnectionCheck = 0;
-    const connectionCheckInterval = 60000; // Check connection every 60 seconds
+    const connectionCheckInterval = 120000; // Check connection every 2 minutes (reduced frequency)
 
     this.logger.log(
       `Starting to watch for email with subject: ${subjectToken}`,
     );
 
-    // Gmail mailboxes to search in order of preference
-    const searchMailboxes = ['INBOX', '[Gmail]/All Mail', '[Gmail]/Sent Mail'];
+    // Gmail mailboxes to search in order of preference (INBOX first for speed)
+    const searchMailboxes = ['INBOX'];
 
     while (Date.now() - startTime < maxWaitTime) {
       try {
         // Periodically check and refresh connection
         if (Date.now() - lastConnectionCheck > connectionCheckInterval) {
           this.logger.log(`Checking IMAP connection health...`);
-          await this.ensureConnection();
+          const isHealthy = await this.isConnectionHealthy();
+          if (!isHealthy) {
+            this.logger.log(`Connection unhealthy, reconnecting...`);
+            await this.ensureConnection();
+          }
           lastConnectionCheck = Date.now();
         }
 
@@ -191,7 +227,7 @@ export class ImapService {
     mailbox: string,
     uid: number,
   ): Promise<{ headers: any; body: string }> {
-    const maxRetries = 3;
+    const maxRetries = 5; // Increased retries for better reliability
     let retryCount = 0;
 
     while (retryCount < maxRetries) {
@@ -222,8 +258,8 @@ export class ImapService {
           const timeoutPromise = new Promise((_, reject) => {
             setTimeout(
               () => reject(new Error(`Fetch timeout for UID ${uid}`)),
-              30000,
-            ); // 30 second timeout
+              45000,
+            ); // 45 second timeout (increased for stability)
           });
 
           const messages = await Promise.race([
@@ -287,12 +323,15 @@ export class ImapService {
         if (
           error.message.includes('Connection') ||
           error.message.includes('closed') ||
-          error.message.includes('ETIMEOUT')
+          error.message.includes('ETIMEOUT') ||
+          error.message.includes('timeout')
         ) {
           this.isConnected = false;
           if (retryCount < maxRetries) {
-            this.logger.log(`Connection error, retrying in 500ms...`);
-            await new Promise((resolve) => setTimeout(resolve, 500));
+            // Exponential backoff for retries
+            const retryDelay = Math.min(1000 * Math.pow(2, retryCount), 8000);
+            this.logger.log(`Connection error, retrying in ${retryDelay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
+            await new Promise((resolve) => setTimeout(resolve, retryDelay));
             continue;
           }
         }
@@ -336,7 +375,7 @@ export class ImapService {
         // Use a timeout for the connection test
         const testPromise = this.client.status('INBOX', { messages: true });
         const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Connection test timeout')), 5000);
+          setTimeout(() => reject(new Error('Connection test timeout')), 10000);
         });
 
         await Promise.race([testPromise, timeoutPromise]);
@@ -357,6 +396,26 @@ export class ImapService {
         }
         await this.connect();
       }
+    }
+  }
+
+  // Add a method to check connection health without reconnecting
+  private async isConnectionHealthy(): Promise<boolean> {
+    if (!this.isConnected || !this.client) {
+      return false;
+    }
+
+    try {
+      const testPromise = this.client.status('INBOX', { messages: true });
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Health check timeout')), 5000);
+      });
+
+      await Promise.race([testPromise, timeoutPromise]);
+      return true;
+    } catch (error) {
+      this.logger.log('Connection health check failed:', error.message);
+      return false;
     }
   }
 
@@ -474,6 +533,20 @@ export class ImapService {
     } catch (error) {
       this.logger.error('Error listing mailboxes:', error);
       throw error;
+    }
+  }
+
+  // Pre-warm connection for faster subsequent operations
+  async preWarmConnection(): Promise<void> {
+    try {
+      await this.ensureConnection();
+      if (this.client && this.isConnected) {
+        // Perform a lightweight operation to ensure connection is ready
+        await this.client.status('INBOX', { messages: true });
+        this.logger.log('IMAP connection pre-warmed successfully');
+      }
+    } catch (error) {
+      this.logger.log('Failed to pre-warm connection:', error.message);
     }
   }
 

@@ -25,7 +25,18 @@ export class EmailsService {
     private testSessionModel: Model<TestSessionDocument>,
     @InjectModel(Email.name) private emailModel: Model<EmailDocument>,
     private imapService: ImapService,
-  ) {}
+  ) {
+    // Pre-warm IMAP connection on service initialization
+    this.preWarmConnection();
+  }
+
+  private async preWarmConnection(): Promise<void> {
+    try {
+      await this.imapService.preWarmConnection();
+    } catch (error) {
+      this.logger.log('Failed to pre-warm IMAP connection:', error.message);
+    }
+  }
 
   async startTest(): Promise<{ token: string; subject: string }> {
     // Generate random 8-character token
@@ -174,8 +185,8 @@ export class EmailsService {
           setTimeout(
             () =>
               reject(new Error(`Message processing timeout for UID ${uid}`)),
-            60000,
-          ); // 60 second timeout
+            90000,
+          ); // 90 second timeout (increased for stability)
         });
 
         const messageData = await Promise.race([
