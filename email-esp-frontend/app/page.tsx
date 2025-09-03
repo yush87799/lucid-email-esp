@@ -10,6 +10,7 @@ import { CopyField } from '../components/ui/CopyField';
 import { Section } from '../components/ui/Section';
 import { Skeleton, SkeletonText } from '../components/Skeleton';
 import { Modal } from '../components/Modal';
+import { Footer } from '../components/Footer';
 import toast from 'react-hot-toast';
 
 interface TestSession {
@@ -153,16 +154,17 @@ function HomeContent() {
   const inboxEmail = process.env.NEXT_PUBLIC_INBOX_EMAIL;
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-4">
-            Email ESP Tester
-          </h1>
-          <p className="text-gray-600">
-            Test email delivery and analyze ESP routing
-          </p>
-        </div>
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <div className="flex-1 py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold text-gray-900 mb-4">
+              Email ESP Tester
+            </h1>
+            <p className="text-gray-600">
+              Test email delivery and analyze ESP routing
+            </p>
+          </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Test Setup Card */}
@@ -379,7 +381,11 @@ function HomeContent() {
             </div>
           </Section>
         </div>
+        </div>
       </div>
+
+      {/* Footer */}
+      <Footer />
 
       {/* Configuration Modal */}
       <Modal
@@ -411,13 +417,16 @@ function HomeContent() {
 export default function Home() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center">
-            <div className="animate-spin h-8 w-8 border-2 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading...</p>
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        <div className="flex-1 py-12 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-7xl mx-auto">
+            <div className="text-center">
+              <div className="animate-spin h-8 w-8 border-2 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+              <p className="text-gray-600">Loading...</p>
+            </div>
           </div>
         </div>
+        <Footer />
       </div>
     }>
       <HomeContent />
