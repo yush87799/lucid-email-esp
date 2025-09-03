@@ -50,10 +50,15 @@ export function ReceivingChainTimeline({ chain }: ReceivingChainTimelineProps) {
               </div>
             )}
             
-            {/* Line 3: formatted timestamp */}
+            {/* Line 3: formatted timestamp and hop duration */}
             {hop.timestamp && (
               <div className="text-xs text-gray-400 mt-1">
                 {formatTimestamp(hop.timestamp)}
+                {hop.hopDurationMs !== undefined && hop.hopDurationMs > 0 && (
+                  <span className="text-green-600 ml-2">
+                    +{hop.hopDurationMs}ms
+                  </span>
+                )}
               </div>
             )}
           </div>

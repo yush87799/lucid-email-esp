@@ -1,74 +1,109 @@
-export function parseReceivingChain(rawHeaders: string | Buffer): Array<{
-  by: string;
+import { unfoldHeaders, getAll } from './header-utils';
+
+export type Hop = {
   from: string;
+  by: string;
   with?: string;
   id?: string;
   for?: string;
-  timestamp?: Date;
   ip?: string;
-}> {
-  const headersStr = Buffer.isBuffer(rawHeaders) ? rawHeaders.toString() : rawHeaders;
+  timestamp?: Date;
+  hopDurationMs?: number; // to next hop
+};
+
+export function parseReceivingChain(rawHeaders: string | Buffer): Hop[] {
+  if (process.env.LOG_LEVEL === 'debug') {
+    console.log('parseReceivingChain input length:', rawHeaders.toString().length);
+    console.log('parseReceivingChain input preview:', rawHeaders.toString().substring(0, 500));
+  }
+
+  // Step 1: Unfold headers to handle line folding
+  const unfolded = unfoldHeaders(rawHeaders);
   
-  console.log('parseReceivingChain input length:', headersStr.length);
-  console.log('parseReceivingChain input preview:', headersStr.substring(0, 500));
-  
-  // Extract all Received headers in order
-  const receivedRegex = /^Received:\s*(.*?)(?=^[A-Za-z-]+:|$)/gms;
+  // Step 2: Split into header blocks and extract Received headers
+  const headerBlocks = unfolded.split(/\r?\n(?=[A-Za-z-]+:)/);
   const receivedHeaders: string[] = [];
-  let match;
   
-  while ((match = receivedRegex.exec(headersStr)) !== null) {
-    receivedHeaders.push(match[1].trim());
+  for (const block of headerBlocks) {
+    const lines = block.split(/\r?\n/);
+    const firstLine = lines[0].trim();
+    
+    if (firstLine.toLowerCase().startsWith('received:')) {
+      // Join all lines of this Received header and normalize whitespace
+      const fullHeader = lines.join(' ').replace(/^received:\s*/i, '').trim();
+      receivedHeaders.push(fullHeader);
+    }
   }
   
-  console.log('Found received headers:', receivedHeaders.length);
+  if (process.env.LOG_LEVEL === 'debug') {
+    console.log('Found received headers:', receivedHeaders.length);
+  }
+  
+  // Step 3: Parse each Received header with improved regex
+  const RX = /(?:^|\s)from\s+(?<from>.+?)\s+by\s+(?<by>.+?)(?:\s+with\s+(?<with>.+?))?(?:\s+id\s+(?<id>.+?))?(?:\s+for\s+(?<for>.+?))?\s*;\s*(?<date>.+)$/i;
+  const RX_IP = /\[(?<ip>(?:\d{1,3}\.){3}\d{1,3}|[a-f0-9:]+)\]/i;
   
   const parsedChain = receivedHeaders.map(header => {
-    // Clean up multiline headers by removing line breaks and extra whitespace
+    // Normalize to single line and collapse internal whitespace
     const cleanHeader = header.replace(/\s+/g, ' ').trim();
     
-    // Parse individual components
-    const byMatch = cleanHeader.match(/by\s+([^\s;]+)/i);
-    const fromMatch = cleanHeader.match(/from\s+([^\s;]+)/i);
-    const withMatch = cleanHeader.match(/with\s+([^\s;]+)/i);
-    const idMatch = cleanHeader.match(/id\s+([^\s;]+)/i);
-    const forMatch = cleanHeader.match(/for\s+([^\s;]+)/i);
-    
-    // Extract IP address from brackets (IPv4 or IPv6)
-    const ipMatch = cleanHeader.match(/\[([0-9a-fA-F:.]+)\]/);
-    
-    // Extract timestamp (usually at the end of the header)
-    const timestampMatch = cleanHeader.match(/([A-Za-z]{3},\s+\d{1,2}\s+[A-Za-z]{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+[+-]\d{4})/);
-    
-    const result: {
-      by: string;
-      from: string;
-      with?: string;
-      id?: string;
-      for?: string;
-      timestamp?: Date;
-      ip?: string;
-    } = {
-      by: byMatch ? byMatch[1] : '',
-      from: fromMatch ? fromMatch[1] : '',
-    };
-    
-    if (withMatch) result.with = withMatch[1];
-    if (idMatch) result.id = idMatch[1];
-    if (forMatch) result.for = forMatch[1];
-    if (ipMatch) result.ip = ipMatch[1];
-    
-    if (timestampMatch) {
-      try {
-        result.timestamp = new Date(timestampMatch[1]);
-      } catch (error) {
-        // If date parsing fails, leave timestamp undefined
-      }
+    const match = RX.exec(cleanHeader);
+    if (!match || !match.groups) {
+      // Skip headers that don't match our pattern
+      return null;
     }
     
-    return result;
-  });
+    const { from, by, with: withValue, id, for: forValue, date } = match.groups;
+    
+    // Try to find IP in either from or by
+    let ip: string | undefined;
+    const fromIpMatch = RX_IP.exec(from);
+    const byIpMatch = RX_IP.exec(by);
+    if (fromIpMatch?.groups?.ip) {
+      ip = fromIpMatch.groups.ip;
+    } else if (byIpMatch?.groups?.ip) {
+      ip = byIpMatch.groups.ip;
+    }
+    
+    // Parse timestamp
+    let timestamp: Date | undefined;
+    try {
+      const parsedDate = new Date(date);
+      if (!isNaN(parsedDate.getTime())) {
+        timestamp = parsedDate;
+      }
+    } catch (error) {
+      // If date parsing fails, leave timestamp undefined
+    }
+    
+    return {
+      from: from.trim(),
+      by: by.trim(),
+      with: withValue?.trim(),
+      id: id?.trim(),
+      for: forValue?.trim(),
+      ip,
+      timestamp
+    };
+  }).filter(hop => hop !== null) as Hop[];
   
-  // Return in order oldest->newest (Received headers are typically newest first)
-  return parsedChain.reverse();
+  // Step 4: Calculate hop durations and return oldest->newest
+  // Received headers are typically newest first, so reverse to get oldest->newest
+  const orderedChain = parsedChain.reverse();
+  
+  // Calculate hop durations between consecutive timestamps
+  for (let i = 0; i < orderedChain.length - 1; i++) {
+    const current = orderedChain[i];
+    const next = orderedChain[i + 1];
+    
+    if (current.timestamp && next.timestamp) {
+      current.hopDurationMs = next.timestamp.getTime() - current.timestamp.getTime();
+    }
+  }
+  
+  if (process.env.LOG_LEVEL === 'debug') {
+    console.log('Parsed receiving chain:', orderedChain.length, 'hops');
+  }
+  
+  return orderedChain;
 }

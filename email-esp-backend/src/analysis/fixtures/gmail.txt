@@ -1,0 +1,14 @@
+Received: from mail-oi1-f180.google.com by mail-oi1-f180.google.com with SMTP id 12345-20020a170906a12300b1234567890abcdef;
+ Wed, 01 Jan 2024 12:00:00 -0800 (PST)
+Received: from 2002:a05:6402:1234:b0:123:4567:890a by 2002:a05:6402:1234:b0:123:4567:890a with SMTP id 12345-20020a170906a12300b1234567890abcdef;
+ Wed, 01 Jan 2024 12:00:00 -0800 (PST)
+Date: Wed, 01 Jan 2024 12:00:00 -0800
+Message-ID: <test123@gmail.com>
+From: test@gmail.com
+To: recipient@example.com
+Return-Path: <bounce@gmail.com>
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+ d=gmail.com; s=20230601; t=1704067200;
+ h=from:to:subject:date:message-id;
+ bh=example=;
+ b=example

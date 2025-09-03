@@ -34,7 +34,8 @@ export class Email {
       id: { type: String, required: false },
       for: { type: String, required: false },
       timestamp: { type: Date, required: false },
-      ip: { type: String, required: false }
+      ip: { type: String, required: false },
+      hopDurationMs: { type: Number, required: false }
     }],
     required: true
   })
@@ -46,10 +47,43 @@ export class Email {
     for?: string;
     timestamp?: Date;
     ip?: string;
+    hopDurationMs?: number;
   }>;
 
   @Prop({ required: true })
   esp: string;
+
+  @Prop({ required: true })
+  espProvider: string;
+
+  @Prop({ required: true })
+  espConfidence: number;
+
+  @Prop({ type: [String], required: true })
+  espReasons: string[];
+
+  @Prop({
+    type: {
+      spf: {
+        result: { type: String, required: false },
+        domain: { type: String, required: false }
+      },
+      dkim: {
+        result: { type: String, required: false },
+        d: { type: String, required: false }
+      },
+      dmarc: {
+        result: { type: String, required: false },
+        policy: { type: String, required: false }
+      }
+    },
+    required: false
+  })
+  authResults?: {
+    spf?: { result: string; domain?: string };
+    dkim?: { result: string; d?: string };
+    dmarc?: { result: string; policy?: string };
+  };
 
   @Prop({ default: Date.now })
   createdAt: Date;

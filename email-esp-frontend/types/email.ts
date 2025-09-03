@@ -6,6 +6,7 @@ export type ChainHop = {
   for?: string;
   timestamp?: string; // ISO string
   ip?: string;
+  hopDurationMs?: number; // duration to next hop in milliseconds
 };
 
 export type TestStatus = 'waiting' | 'received' | 'parsed' | 'error';
@@ -16,6 +17,9 @@ export type TestSessionStatus = {
   status: TestStatus;
   emailId?: string;
   esp?: string;
+  espProvider?: string;
+  espConfidence?: number;
+  espReasons?: string[];
   receivingChain?: ChainHop[];
   error?: string;
 };

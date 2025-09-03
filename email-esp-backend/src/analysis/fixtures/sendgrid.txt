@@ -1,0 +1,16 @@
+Received: from o123456789.sendgrid.net (o123456789.sendgrid.net [167.89.123.456])
+ by mail.example.com with ESMTP id 12345-20020a170906a12300b1234567890abcdef;
+ Wed, 01 Jan 2024 12:00:00 +0000 (UTC)
+Received: from mail.example.com ([192.168.1.1])
+ by sendgrid.net with SMTP id 12345-20020a170906a12300b1234567890abcdef;
+ Wed, 01 Jan 2024 12:00:00 +0000 (UTC)
+Date: Wed, 01 Jan 2024 12:00:00 +0000
+Message-ID: <test123@sendgrid.net>
+From: test@example.com
+To: recipient@example.com
+X-SG-EID: abc123def456
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+ d=sendgrid.net; s=20230601; t=1704067200;
+ h=from:to:subject:date:message-id;
+ bh=example=;
+ b=example

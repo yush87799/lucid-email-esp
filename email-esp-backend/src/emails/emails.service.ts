@@ -6,6 +6,8 @@ import { Email, EmailDocument } from '../schemas/email.schema';
 import { ImapService } from '../imap/imap.service';
 import { parseReceivingChain } from '../analysis/received-parser';
 import { detectESP } from '../analysis/esp-detector';
+import { unfoldHeaders, splitHeaderBlocks, headersToMap, getAll } from '../analysis/header-utils';
+import { parseAuthenticationResults } from '../analysis/auth-parser';
 
 @Injectable()
 export class EmailsService {
@@ -184,15 +186,23 @@ X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
         this.logger.log(`Using enhanced fallback data for ${token} with Gmail-like headers`);
       }
 
+      // Build headers map for analysis
+      const unfolded = unfoldHeaders(body);
+      const headerBlocks = splitHeaderBlocks(unfolded);
+      const headersMap = headersToMap(headerBlocks);
+
+      // Parse authentication results
+      const authResults = parseAuthenticationResults(getAll(headerBlocks, 'authentication-results'));
+
       // Parse receiving chain
       this.logger.log(`Parsing receiving chain for ${token}...`);
       const receivingChain = parseReceivingChain(body);
       this.logger.log(`Parsed receiving chain for ${token}:`, receivingChain);
 
-      // Detect ESP
+      // Detect ESP with new improved detection
       this.logger.log(`Detecting ESP for ${token}...`);
-      const esp = detectESP(headers, envelope.messageId);
-      this.logger.log(`Detected ESP for ${token}:`, esp);
+      const espDetection = detectESP(headers, envelope.messageId);
+      this.logger.log(`Detected ESP for ${token}:`, espDetection);
 
       // Create email document
       this.logger.log(`Creating email document for ${token}...`);
@@ -215,7 +225,11 @@ X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
           headers,
           rawHeaders: body,
           receivingChain,
-          esp,
+          esp: espDetection.provider, // Keep legacy field for compatibility
+          espProvider: espDetection.provider,
+          espConfidence: espDetection.confidence,
+          espReasons: espDetection.reasons,
+          authResults,
         });
 
         this.logger.log(`Attempting to save email for ${token}...`);
@@ -227,7 +241,10 @@ X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
           date: email.date,
           headersKeys: Object.keys(email.headers),
           receivingChainLength: email.receivingChain.length,
-          esp: email.esp
+          esp: email.esp,
+          espProvider: email.espProvider,
+          espConfidence: email.espConfidence,
+          espReasons: email.espReasons
         });
         
         savedEmail = await email.save();
