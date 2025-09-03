@@ -12,6 +12,17 @@ export class ImapService {
       return;
     }
 
+    // Clean up any existing connection
+    if (this.client) {
+      try {
+        await this.client.logout();
+      } catch (error) {
+        // Ignore logout errors
+      }
+      this.client = null;
+      this.isConnected = false;
+    }
+
     try {
       // Ensure required environment variables are set
       const host = process.env.IMAP_HOST;
@@ -31,6 +42,9 @@ export class ImapService {
           pass,
         },
         logger: false, // Disable ImapFlow's internal logging
+        // Connection timeout settings
+        socketTimeout: 30000, // 30 seconds
+        greetingTimeout: 10000, // 10 seconds
       });
 
       await this.client.connect();
@@ -46,6 +60,7 @@ export class ImapService {
       this.client.on('error', (error) => {
         this.isConnected = false;
         this.logger.error('IMAP connection error:', error);
+        // Don't throw here, let the calling code handle reconnection
       });
 
     } catch (error) {
@@ -77,6 +92,10 @@ export class ImapService {
         if (!this.client || !this.isConnected) {
           this.logger.log(`IMAP connection lost, reconnecting...`);
           await this.connect();
+        }
+
+        if (!this.client) {
+          throw new Error('IMAP client not available after reconnection');
         }
 
         for (const mailbox of searchMailboxes) {
@@ -241,6 +260,9 @@ export class ImapService {
         }
       }
     }
+    
+    // This should never be reached due to the throw above, but TypeScript needs it
+    throw new Error('Maximum retries exceeded');
   }
 
   private async ensureConnection(): Promise<void> {
@@ -250,10 +272,25 @@ export class ImapService {
     } else {
       // Test the connection with a simple command
       try {
-        await this.client.status('INBOX', { messages: true });
+        // Use a timeout for the connection test
+        const testPromise = this.client.status('INBOX', { messages: true });
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Connection test timeout')), 5000);
+        });
+        
+        await Promise.race([testPromise, timeoutPromise]);
       } catch (error) {
         this.logger.log('Connection test failed, reconnecting...', error.message);
         this.isConnected = false;
+        // Clean up the old client
+        if (this.client) {
+          try {
+            await this.client.logout();
+          } catch (logoutError) {
+            // Ignore logout errors
+          }
+          this.client = null;
+        }
         await this.connect();
       }
     }
