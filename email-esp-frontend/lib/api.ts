@@ -5,9 +5,20 @@ if (!API_BASE) {
   throw new Error('NEXT_PUBLIC_API_BASE environment variable is required');
 }
 
+// Helper function to build API URLs without double slashes
+function buildApiUrl(endpoint: string): string {
+  if (!API_BASE) {
+    throw new Error('NEXT_PUBLIC_API_BASE environment variable is required');
+  }
+  const baseUrl = API_BASE.replace(/\/$/, ''); // Remove trailing slash
+  const cleanEndpoint = endpoint.replace(/^\//, ''); // Remove leading slash
+  return `${baseUrl}/${cleanEndpoint}`;
+}
+
 export async function startTest(): Promise<StartTestResponse> {
   console.log('Starting test with API_BASE:', API_BASE);
-  const response = await fetch(`${API_BASE}/tests/start`, {
+  const url = buildApiUrl('/tests/start');
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -29,7 +40,8 @@ export async function startTest(): Promise<StartTestResponse> {
 
 export async function getTestStatus(token: string): Promise<TestSessionStatus> {
   console.log('Getting test status for token:', token, 'API_BASE:', API_BASE);
-  const response = await fetch(`${API_BASE}/tests/${token}/status`);
+  const url = buildApiUrl(`/tests/${token}/status`);
+  const response = await fetch(url);
   
   console.log('Get test status response:', response.status, response.statusText);
   
@@ -46,7 +58,8 @@ export async function getTestStatus(token: string): Promise<TestSessionStatus> {
 
 export async function resetTest(token: string): Promise<StartTestResponse> {
   console.log('Resetting test for token:', token, 'API_BASE:', API_BASE);
-  const response = await fetch(`${API_BASE}/tests/${token}/reset`, {
+  const url = buildApiUrl(`/tests/${token}/reset`);
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
