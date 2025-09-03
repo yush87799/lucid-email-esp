@@ -18,6 +18,23 @@ export function useTestStatus(
   
   const intervalMs = opts?.intervalMs ?? 2500;
 
+  const stop = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+      debounceTimeoutRef.current = null;
+    }
+  }, []);
+
   const fetchStatus = useCallback(async () => {
     if (!token) return;
     
@@ -55,28 +72,11 @@ export function useTestStatus(
         setIsLoading(false);
       }
     }
-  }, [token]);
+  }, [token, stop]);
 
   const refresh = useCallback(async () => {
     await fetchStatus();
   }, [fetchStatus]);
-
-  const stop = useCallback(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-    
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
-    
-    if (debounceTimeoutRef.current) {
-      clearTimeout(debounceTimeoutRef.current);
-      debounceTimeoutRef.current = null;
-    }
-  }, []);
 
   useEffect(() => {
     if (!token) {

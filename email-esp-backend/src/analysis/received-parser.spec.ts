@@ -17,27 +17,27 @@ describe('Received Parser', () => {
         try {
           const fixturePath = join(fixturesDir, file);
           const rawHeaders = readFileSync(fixturePath, 'utf-8');
-          
+
           const result = parseReceivingChain(rawHeaders);
-          
+
           expect(result).toBeDefined();
           expect(Array.isArray(result)).toBe(true);
           expect(result.length).toBeGreaterThanOrEqual(2);
-          
+
           // Check ordering (oldest -> newest)
           const timestamps = result
-            .map(hop => hop.timestamp)
-            .filter(ts => ts !== undefined)
-            .map(ts => ts!.getTime());
-          
+            .map((hop) => hop.timestamp)
+            .filter((ts) => ts !== undefined)
+            .map((ts) => ts.getTime());
+
           if (timestamps.length > 1) {
             for (let i = 0; i < timestamps.length - 1; i++) {
               expect(timestamps[i]).toBeLessThanOrEqual(timestamps[i + 1]);
             }
           }
-          
+
           // Check hop structure
-          result.forEach(hop => {
+          result.forEach((hop) => {
             expect(hop.from).toBeDefined();
             expect(hop.by).toBeDefined();
             expect(typeof hop.from).toBe('string');
@@ -64,7 +64,7 @@ describe('Received Parser', () => {
     it('should handle malformed received headers', () => {
       const malformed = `Received: malformed header without proper format
 Received: from example.com by mail.example.com; Wed, 01 Jan 2024 12:00:00 +0000`;
-      
+
       const result = parseReceivingChain(malformed);
       expect(result.length).toBeGreaterThan(0);
       // Should skip malformed headers but parse valid ones
@@ -74,7 +74,7 @@ Received: from example.com by mail.example.com; Wed, 01 Jan 2024 12:00:00 +0000`
       const folded = `Received: from example.com
 	by mail.example.com with SMTP id 12345;
 	Wed, 01 Jan 2024 12:00:00 +0000`;
-      
+
       const result = parseReceivingChain(folded);
       expect(result.length).toBe(1);
       expect(result[0].from).toContain('example.com');

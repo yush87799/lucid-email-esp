@@ -17,22 +17,22 @@ describe('ESP Detector', () => {
         try {
           const fixturePath = join(fixturesDir, file);
           const rawHeaders = readFileSync(fixturePath, 'utf-8');
-          
+
           // Convert raw headers to the format expected by detectESP
           const headers: Record<string, string | string[]> = {};
           const lines = rawHeaders.split(/\r?\n/);
           let currentHeader = '';
           let currentValue = '';
-          
+
           for (const line of lines) {
             if (line.trim() === '') continue;
-            
+
             if (line.match(/^[A-Za-z-]+:/)) {
               // Save previous header
               if (currentHeader) {
                 headers[currentHeader] = currentValue.trim();
               }
-              
+
               // Start new header
               const match = line.match(/^([^:]+):\s*(.*)$/);
               if (match) {
@@ -44,14 +44,14 @@ describe('ESP Detector', () => {
               currentValue += ' ' + line.trim();
             }
           }
-          
+
           // Don't forget the last header
           if (currentHeader) {
             headers[currentHeader] = currentValue.trim();
           }
-          
+
           const result = detectESP(headers);
-          
+
           expect(result.provider).toBe(expectedProvider);
           expect(result.confidence).toBeGreaterThanOrEqual(0.6);
           expect(result.reasons).toBeDefined();
@@ -79,10 +79,10 @@ describe('ESP Detector', () => {
 
     it('should handle unknown provider', () => {
       const headers = {
-        'received': ['from unknown.example.com by mail.example.com'],
-        'message-id': ['<test@example.com>']
+        received: ['from unknown.example.com by mail.example.com'],
+        'message-id': ['<test@example.com>'],
       };
-      
+
       const result = detectESP(headers);
       expect(result.provider).toBe('Unknown');
       expect(result.confidence).toBeLessThan(0.6);

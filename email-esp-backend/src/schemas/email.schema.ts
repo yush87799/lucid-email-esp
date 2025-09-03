@@ -26,18 +26,26 @@ export class Email {
   @Prop({ required: true })
   rawHeaders: string;
 
+  @Prop({ required: false })
+  mailbox?: string;
+
+  @Prop({ type: [String], required: false })
+  receivingChainWarnings?: string[];
+
   @Prop({
-    type: [{
-      by: { type: String, required: true },
-      from: { type: String, required: true },
-      with: { type: String, required: false },
-      id: { type: String, required: false },
-      for: { type: String, required: false },
-      timestamp: { type: Date, required: false },
-      ip: { type: String, required: false },
-      hopDurationMs: { type: Number, required: false }
-    }],
-    required: true
+    type: [
+      {
+        by: { type: String, required: true },
+        from: { type: String, required: true },
+        with: { type: String, required: false },
+        id: { type: String, required: false },
+        for: { type: String, required: false },
+        timestamp: { type: Date, required: false },
+        ip: { type: String, required: false },
+        hopDurationMs: { type: Number, required: false },
+      },
+    ],
+    required: true,
   })
   receivingChain: Array<{
     by: string;
@@ -66,18 +74,18 @@ export class Email {
     type: {
       spf: {
         result: { type: String, required: false },
-        domain: { type: String, required: false }
+        domain: { type: String, required: false },
       },
       dkim: {
         result: { type: String, required: false },
-        d: { type: String, required: false }
+        d: { type: String, required: false },
       },
       dmarc: {
         result: { type: String, required: false },
-        policy: { type: String, required: false }
-      }
+        policy: { type: String, required: false },
+      },
     },
-    required: false
+    required: false,
   })
   authResults?: {
     spf?: { result: string; domain?: string };

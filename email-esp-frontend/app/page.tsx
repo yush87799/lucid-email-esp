@@ -26,6 +26,7 @@ interface TestSession {
     timestamp?: string;
     ip?: string;
   }>;
+  receivingChainWarnings?: string[];
 }
 
 function HomeContent() {
@@ -35,6 +36,7 @@ function HomeContent() {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
+  const [receivedStartTime, setReceivedStartTime] = useState<number | null>(null);
 
   const handleStartTest = async () => {
     setLoading(true);
@@ -67,7 +69,15 @@ function HomeContent() {
   // Polling effect
   useEffect(() => {
     if (!testSession || testSession.status === 'parsed' || testSession.status === 'error') {
+      setReceivedStartTime(null);
       return;
+    }
+
+    // Track when we enter 'received' status
+    if (testSession.status === 'received' && receivedStartTime === null) {
+      setReceivedStartTime(Date.now());
+    } else if (testSession.status !== 'received') {
+      setReceivedStartTime(null);
     }
 
     const pollStatus = async () => {
@@ -86,7 +96,7 @@ function HomeContent() {
 
     const interval = setInterval(pollStatus, 3000);
     return () => clearInterval(interval);
-  }, [testSession]);
+  }, [testSession, receivedStartTime]);
 
   const handleCopyRawJSON = async () => {
     if (!testSession) return;
@@ -250,8 +260,27 @@ function HomeContent() {
                       )}
 
                       {testSession.status === 'received' && (
-                        <div className="text-sm text-gray-600">
-                          Email received! Parsing headers…
+                        <div className="space-y-3">
+                          <div className="text-sm text-gray-600">
+                            Email received! Parsing headers…
+                          </div>
+                          {receivedStartTime && Date.now() - receivedStartTime > 120000 && (
+                            <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
+                              <p className="text-sm text-yellow-800 font-medium mb-2">
+                                Found your message, but fetch/parse took too long.
+                              </p>
+                              <div className="text-xs text-yellow-700 space-y-1">
+                                <p>Tips:</p>
+                                <ul className="list-disc list-inside space-y-1 ml-2">
+                                  <li>Check Render logs; ensure UID fetched from the <strong>same mailbox</strong></li>
+                                  <li>Try sending from a different <strong>ESP/account</strong></li>
+                                  <li>Avoid sending to yourself</li>
+                                  <li>Avoid &apos;Schedule send&apos;</li>
+                                  <li>Ensure raw headers are present</li>
+                                </ul>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -270,8 +299,21 @@ function HomeContent() {
                           ) : (
                             <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
                               <p className="text-sm text-yellow-800">
-                                We couldn&apos;t parse any &apos;Received&apos; headers from this message. Try sending from a different ESP or check raw headers.
+                                {testSession.receivingChainWarnings?.some(w => w.includes("No 'Received'")) 
+                                  ? "We couldn&apos;t parse any &apos;Received&apos; headers from this message. Try sending from a different ESP, or from a different account to this inbox (not to yourself). For Gmail, we also parse &apos;X-Received&apos;."
+                                  : "We couldn&apos;t parse any &apos;Received&apos; headers from this message. Try sending from a different ESP or check raw headers."
+                                }
                               </p>
+                              {testSession.receivingChainWarnings && testSession.receivingChainWarnings.length > 0 && (
+                                <div className="mt-2 text-xs text-yellow-700">
+                                  <p className="font-medium">Warnings:</p>
+                                  <ul className="list-disc list-inside mt-1">
+                                    {testSession.receivingChainWarnings.map((warning, index) => (
+                                      <li key={index}>{warning}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
                               {/* TODO: Add "Show Raw Headers" collapsible when backend supplies raw headers */}
                             </div>
                           )}

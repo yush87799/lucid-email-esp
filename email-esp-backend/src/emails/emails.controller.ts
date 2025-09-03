@@ -31,12 +31,12 @@ export class EmailsController {
       return {
         success: true,
         count: emails.length,
-        emails: emails
+        emails: emails,
       };
     } catch (error) {
       return {
         success: false,
-        error: error.message
+        error: error.message,
       };
     }
   }
@@ -47,12 +47,12 @@ export class EmailsController {
       const mailboxes = await this.imapService.listMailboxes();
       return {
         success: true,
-        mailboxes: mailboxes
+        mailboxes: mailboxes,
       };
     } catch (error) {
       return {
         success: false,
-        error: error.message
+        error: error.message,
       };
     }
   }
@@ -65,13 +65,13 @@ export class EmailsController {
       return {
         success: true,
         connected: true,
-        mailboxes: mailboxes
+        mailboxes: mailboxes,
       };
     } catch (error) {
       return {
         success: false,
         connected: false,
-        error: error.message
+        error: error.message,
       };
     }
   }

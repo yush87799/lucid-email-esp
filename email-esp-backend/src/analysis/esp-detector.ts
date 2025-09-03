@@ -1,17 +1,17 @@
 import { headersToMap, getAll } from './header-utils';
-import { 
-  parseAuthenticationResults, 
-  extractMessageIdDomain, 
-  extractReturnPathDomain, 
-  extractDkimD, 
-  extractXProviderSignals 
+import {
+  parseAuthenticationResults,
+  extractMessageIdDomain,
+  extractReturnPathDomain,
+  extractDkimD,
+  extractXProviderSignals,
 } from './auth-parser';
 
 export type EspDetection = {
-  provider: string;              // e.g., "Amazon SES", "SendGrid", ...
-  confidence: number;            // 0..1
-  reasons: string[];             // human-readable bullets
-  signals: Record<string,string>;// extracted signal summary
+  provider: string; // e.g., "Amazon SES", "SendGrid", ...
+  confidence: number; // 0..1
+  reasons: string[]; // human-readable bullets
+  signals: Record<string, string>; // extracted signal summary
 };
 
 const DOMAIN_TO_PROVIDER: Record<string, string> = {
@@ -32,7 +32,11 @@ const DOMAIN_TO_PROVIDER: Record<string, string> = {
   'yahoo-inc.com': 'Yahoo',
 };
 
-export function detectESP(headers: Record<string, string | string[]>, messageId?: string): EspDetection {
+export function detectESP(
+  headers: Record<string, string | string[]>,
+  messageId?: string,
+  context?: { mailbox?: string; usedXReceived?: boolean },
+): EspDetection {
   if (process.env.LOG_LEVEL === 'debug') {
     console.log('detectESP headers keys:', Object.keys(headers));
     console.log('detectESP messageId:', messageId);
@@ -42,8 +46,8 @@ export function detectESP(headers: Record<string, string | string[]>, messageId?
   const headersMap = headersToMap(
     Object.entries(headers).map(([name, value]) => ({
       name: name.toLowerCase(),
-      value: Array.isArray(value) ? value.join(' ') : value
-    }))
+      value: Array.isArray(value) ? value.join(' ') : value,
+    })),
   );
 
   const signals: Record<string, string> = {};
@@ -52,8 +56,11 @@ export function detectESP(headers: Record<string, string | string[]>, messageId?
 
   // Extract DKIM d= domain (weight: 5)
   const dkimSignatures = getAll(
-    Object.entries(headersMap).map(([name, values]) => ({ name, value: values.join(' ') })),
-    'dkim-signature'
+    Object.entries(headersMap).map(([name, values]) => ({
+      name,
+      value: values.join(' '),
+    })),
+    'dkim-signature',
   );
   const dkimDomain = extractDkimD(dkimSignatures);
   if (dkimDomain) {
@@ -67,8 +74,11 @@ export function detectESP(headers: Record<string, string | string[]>, messageId?
 
   // Extract Received hostnames (weight: 4)
   const receivedHeaders = getAll(
-    Object.entries(headersMap).map(([name, values]) => ({ name, value: values.join(' ') })),
-    'received'
+    Object.entries(headersMap).map(([name, values]) => ({
+      name,
+      value: values.join(' '),
+    })),
+    'received',
   );
   for (const received of receivedHeaders) {
     for (const [domain, provider] of Object.entries(DOMAIN_TO_PROVIDER)) {
@@ -94,8 +104,11 @@ export function detectESP(headers: Record<string, string | string[]>, messageId?
 
   // Extract Return-Path domain (weight: 2)
   const returnPathHeaders = getAll(
-    Object.entries(headersMap).map(([name, values]) => ({ name, value: values.join(' ') })),
-    'return-path'
+    Object.entries(headersMap).map(([name, values]) => ({
+      name,
+      value: values.join(' '),
+    })),
+    'return-path',
   );
   if (returnPathHeaders.length > 0) {
     const returnPathDomain = extractReturnPathDomain(returnPathHeaders[0]);
@@ -128,7 +141,8 @@ export function detectESP(headers: Record<string, string | string[]>, messageId?
         providerScores['Amazon SES'] = (providerScores['Amazon SES'] || 0) + 3;
         reasons.push(`${signal} present`);
       } else if (signal.includes('MS-Exchange-')) {
-        providerScores['Microsoft 365/Outlook'] = (providerScores['Microsoft 365/Outlook'] || 0) + 3;
+        providerScores['Microsoft 365/Outlook'] =
+          (providerScores['Microsoft 365/Outlook'] || 0) + 3;
         reasons.push(`${signal} present`);
       } else if (signal.includes('PM-')) {
         providerScores['Postmark'] = (providerScores['Postmark'] || 0) + 3;
@@ -140,9 +154,12 @@ export function detectESP(headers: Record<string, string | string[]>, messageId?
   // Fallback: Authentication-Results hints (weight: 1-2)
   const authResults = parseAuthenticationResults(
     getAll(
-      Object.entries(headersMap).map(([name, values]) => ({ name, value: values.join(' ') })),
-      'authentication-results'
-    )
+      Object.entries(headersMap).map(([name, values]) => ({
+        name,
+        value: values.join(' '),
+      })),
+      'authentication-results',
+    ),
   );
   if (authResults.spf?.domain) {
     const provider = DOMAIN_TO_PROVIDER[authResults.spf.domain];
@@ -163,19 +180,31 @@ export function detectESP(headers: Record<string, string | string[]>, messageId?
     }
   }
 
-  // Calculate confidence (cap at 1.0)
-  const confidence = Math.min(1, bestScore / 10);
+  // Calculate base confidence (cap at 1.0)
+  let confidence = Math.min(1, bestScore / 10);
+
+  // Apply confidence caps based on context
+  if (context?.usedXReceived) {
+    confidence = Math.min(confidence, 0.6);
+    reasons.push('Used X-Received headers (Gmail) - confidence capped');
+  }
+
+  if (context?.mailbox === '[Gmail]/Sent Mail') {
+    confidence = Math.min(confidence, 0.4);
+    reasons.push('Message from Gmail Sent Mail - confidence capped');
+  }
 
   if (process.env.LOG_LEVEL === 'debug') {
     console.log('ESP detection signals:', signals);
     console.log('ESP detection reasons:', reasons);
     console.log('ESP detection scores:', providerScores);
+    console.log('ESP detection final confidence:', confidence);
   }
 
   return {
     provider: bestProvider,
     confidence,
     reasons,
-    signals
+    signals,
   };
 }

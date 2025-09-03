@@ -11,10 +11,10 @@ export class TestSession {
   @Prop({ required: true })
   subject: string;
 
-  @Prop({ 
-    required: true, 
+  @Prop({
+    required: true,
     enum: ['waiting', 'received', 'parsed', 'error'],
-    default: 'waiting'
+    default: 'waiting',
   })
   status: 'waiting' | 'received' | 'parsed' | 'error';
 
