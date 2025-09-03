@@ -26,12 +26,16 @@ export class EmailsService {
     @InjectModel(Email.name) private emailModel: Model<EmailDocument>,
     private imapService: ImapService,
   ) {
-    // Pre-warm IMAP connection on service initialization
-    this.preWarmConnection();
+    // Pre-warm IMAP connection on service initialization (non-blocking)
+    this.preWarmConnection().catch((error) => {
+      this.logger.log('Failed to pre-warm IMAP connection:', error.message);
+    });
   }
 
   private async preWarmConnection(): Promise<void> {
     try {
+      // Add a small delay to avoid interfering with startup
+      await new Promise(resolve => setTimeout(resolve, 2000));
       await this.imapService.preWarmConnection();
     } catch (error) {
       this.logger.log('Failed to pre-warm IMAP connection:', error.message);

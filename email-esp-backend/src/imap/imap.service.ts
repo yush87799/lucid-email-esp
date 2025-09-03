@@ -111,7 +111,7 @@ export class ImapService {
     maxWaitTime: number = 300000,
   ): Promise<LocatedMessage & { envelope: any }> {
     const startTime = Date.now();
-    const pollInterval = 5000; // Check every 5 seconds (reduced for faster response)
+    const pollInterval = 10000; // Check every 10 seconds (balanced for speed and stability)
     let lastConnectionCheck = 0;
     const connectionCheckInterval = 120000; // Check connection every 2 minutes (reduced frequency)
 
@@ -119,8 +119,8 @@ export class ImapService {
       `Starting to watch for email with subject: ${subjectToken}`,
     );
 
-    // Gmail mailboxes to search in order of preference (INBOX first for speed)
-    const searchMailboxes = ['INBOX'];
+    // Gmail mailboxes to search in order of preference
+    const searchMailboxes = ['INBOX', '[Gmail]/All Mail', '[Gmail]/Sent Mail'];
 
     while (Date.now() - startTime < maxWaitTime) {
       try {
