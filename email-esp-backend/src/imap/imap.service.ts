@@ -55,14 +55,10 @@ export class ImapService {
   }
 
   async watchForSubject(subjectToken: string, maxWaitTime: number = 300000): Promise<{ uid: number; envelope: any }> {
-    await this.ensureConnection();
-
-    if (!this.client) {
-      throw new Error('IMAP client not connected');
-    }
-
     const startTime = Date.now();
-    const pollInterval = 10000; // Check every 10 seconds
+    const pollInterval = 15000; // Check every 15 seconds (increased from 10)
+    let lastConnectionCheck = 0;
+    const connectionCheckInterval = 60000; // Check connection every 60 seconds
 
     this.logger.log(`Starting to watch for email with subject: ${subjectToken}`);
 
@@ -70,54 +66,79 @@ export class ImapService {
     const searchMailboxes = ['INBOX', '[Gmail]/All Mail', '[Gmail]/Sent Mail'];
 
     while (Date.now() - startTime < maxWaitTime) {
-      for (const mailbox of searchMailboxes) {
-        try {
-          this.logger.log(`Searching in mailbox: ${mailbox}`);
-          const lock = await this.client.getMailboxLock(mailbox);
-          
+      try {
+        // Periodically check and refresh connection
+        if (Date.now() - lastConnectionCheck > connectionCheckInterval) {
+          this.logger.log(`Checking IMAP connection health...`);
+          await this.ensureConnection();
+          lastConnectionCheck = Date.now();
+        }
+
+        if (!this.client || !this.isConnected) {
+          this.logger.log(`IMAP connection lost, reconnecting...`);
+          await this.connect();
+        }
+
+        for (const mailbox of searchMailboxes) {
           try {
-            // Search for messages with subject containing the token
-            const searchResults = await this.client.search({
-              subject: subjectToken
-            });
+            this.logger.log(`Searching in mailbox: ${mailbox}`);
+            const lock = await this.client.getMailboxLock(mailbox);
+            
+            try {
+              // Search for messages with subject containing the token
+              const searchResults = await this.client.search({
+                subject: subjectToken
+              });
 
-            this.logger.log(`Search results in ${mailbox}:`, searchResults);
+              this.logger.log(`Search results in ${mailbox}:`, searchResults);
 
-            if (searchResults && searchResults.length > 0) {
-              // Get the newest message (highest UID)
-              const newestUid = Math.max(...searchResults);
+              if (searchResults && searchResults.length > 0) {
+                // Get the newest message (highest UID)
+                const newestUid = Math.max(...searchResults);
 
-              // Fetch the envelope for the newest message
-              const messages = this.client.fetch(newestUid, { envelope: true, uid: true });
-              let envelope: any = null;
+                // Fetch the envelope for the newest message
+                const messages = this.client.fetch(newestUid, { envelope: true, uid: true });
+                let envelope: any = null;
 
-              for await (const message of messages) {
-                envelope = message.envelope;
-                break;
+                for await (const message of messages) {
+                  envelope = message.envelope;
+                  break;
+                }
+
+                this.logger.log(`Found message with UID ${newestUid} for subject token: ${subjectToken} in ${mailbox}`);
+                return {
+                  uid: newestUid,
+                  envelope
+                };
               }
 
-              this.logger.log(`Found message with UID ${newestUid} for subject token: ${subjectToken} in ${mailbox}`);
-              return {
-                uid: newestUid,
-                envelope
-              };
+            } finally {
+              lock.release();
             }
 
-          } finally {
-            lock.release();
+          } catch (error) {
+            this.logger.log(`Could not search in ${mailbox}:`, error.message);
+            // If connection error, try to reconnect
+            if (error.message.includes('Connection') || error.message.includes('closed')) {
+              this.logger.log(`Connection error detected, will reconnect on next iteration`);
+              this.isConnected = false;
+            }
+            continue;
           }
-
-        } catch (error) {
-          this.logger.log(`Could not search in ${mailbox}:`, error.message);
-          continue;
         }
+
+        // No message found yet, log and continue polling
+        this.logger.log(`No message found yet for subject: ${subjectToken}. Continuing to poll... (${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
+
+        // Wait before next poll
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+
+      } catch (error) {
+        this.logger.error(`Error in watchForSubject loop:`, error);
+        this.isConnected = false; // Mark connection as failed
+        // Wait a bit before retrying
+        await new Promise(resolve => setTimeout(resolve, 5000));
       }
-
-      // No message found yet, log and continue polling
-      this.logger.log(`No message found yet for subject: ${subjectToken}. Continuing to poll...`);
-
-      // Wait before next poll
-      await new Promise(resolve => setTimeout(resolve, pollInterval));
     }
 
     // Timeout reached
@@ -125,47 +146,116 @@ export class ImapService {
   }
 
   async getFullMessage(uid: number): Promise<{ headers: any; body: string }> {
-    await this.ensureConnection();
+    const maxRetries = 3;
+    let retryCount = 0;
 
-    if (!this.client) {
-      throw new Error('IMAP client not connected');
-    }
-
-    try {
-      const lock = await this.client.getMailboxLock('INBOX');
-      
+    while (retryCount < maxRetries) {
       try {
-        // Fetch full message with headers and body
-        const downloadObject = await this.client.download(uid.toString(), '1:*', { uid: true });
-        
-        if (!downloadObject) {
-          throw new Error(`Message with UID ${uid} not found`);
+        await this.ensureConnection();
+
+        if (!this.client || !this.isConnected) {
+          throw new Error('IMAP client not connected');
         }
 
-        this.logger.log(`Retrieved full message for UID ${uid}`);
-        this.logger.log(`Download object keys:`, Object.keys(downloadObject));
-        this.logger.log(`Meta keys:`, downloadObject.meta ? Object.keys(downloadObject.meta) : 'no meta');
-        this.logger.log(`Content type:`, typeof downloadObject.content);
-        this.logger.log(`Content available:`, downloadObject.content ? 'yes' : 'no');
+        // Try multiple mailboxes to find the message
+        const searchMailboxes = ['INBOX', '[Gmail]/All Mail', '[Gmail]/Sent Mail'];
         
-        return {
-          headers: downloadObject.meta || {},
-          body: downloadObject.content ? downloadObject.content.toString() : ''
-        };
+        for (const mailbox of searchMailboxes) {
+          try {
+            this.logger.log(`Attempting to download UID ${uid} from ${mailbox}...`);
+            const lock = await this.client.getMailboxLock(mailbox);
+            
+            try {
+              // Add timeout to prevent hanging
+              const downloadPromise = this.client.download(uid.toString(), '1:*', { uid: true });
+              const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error(`Download timeout for UID ${uid}`)), 30000); // 30 second timeout
+              });
+              
+              const downloadObject = await Promise.race([downloadPromise, timeoutPromise]) as any;
+              
+              if (!downloadObject) {
+                this.logger.log(`Message with UID ${uid} not found in ${mailbox}`);
+                continue; // Try next mailbox
+              }
 
-      } finally {
-        lock.release();
+              this.logger.log(`Retrieved full message for UID ${uid} from ${mailbox}`);
+              this.logger.log(`Download object keys:`, Object.keys(downloadObject));
+              this.logger.log(`Meta keys:`, downloadObject.meta ? Object.keys(downloadObject.meta) : 'no meta');
+              this.logger.log(`Content type:`, typeof downloadObject.content);
+              this.logger.log(`Content available:`, downloadObject.content ? 'yes' : 'no');
+              
+              // Convert stream to string properly
+              let bodyContent = '';
+              if (downloadObject.content) {
+                // Handle both Buffer and Readable stream
+                if (Buffer.isBuffer(downloadObject.content)) {
+                  bodyContent = downloadObject.content.toString();
+                } else {
+                  // It's a Readable stream, collect the data
+                  const chunks: Buffer[] = [];
+                  for await (const chunk of downloadObject.content) {
+                    chunks.push(chunk);
+                  }
+                  bodyContent = Buffer.concat(chunks).toString();
+                }
+              }
+              
+              this.logger.log(`Body content length: ${bodyContent.length}`);
+              
+              return {
+                headers: downloadObject.meta || {},
+                body: bodyContent
+              };
+
+            } finally {
+              lock.release();
+            }
+          } catch (mailboxError) {
+            this.logger.log(`Could not download from ${mailbox}:`, mailboxError.message);
+            if (mailboxError.message.includes('Connection') || mailboxError.message.includes('closed')) {
+              this.isConnected = false;
+              throw mailboxError; // Re-throw connection errors to trigger retry
+            }
+            continue; // Try next mailbox
+          }
+        }
+        
+        throw new Error(`Message with UID ${uid} not found in any mailbox`);
+
+      } catch (error) {
+        retryCount++;
+        this.logger.error(`Error getting full message for UID ${uid} (attempt ${retryCount}/${maxRetries}):`, error);
+        
+        if (error.message.includes('Connection') || error.message.includes('closed')) {
+          this.isConnected = false;
+          if (retryCount < maxRetries) {
+            this.logger.log(`Connection error, retrying in 2 seconds...`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            continue;
+          }
+        }
+        
+        if (retryCount >= maxRetries) {
+          throw error;
+        }
       }
-
-    } catch (error) {
-      this.logger.error(`Error getting full message for UID ${uid}:`, error);
-      throw error;
     }
   }
 
   private async ensureConnection(): Promise<void> {
     if (!this.isConnected || !this.client) {
+      this.logger.log('Connection not available, reconnecting...');
       await this.connect();
+    } else {
+      // Test the connection with a simple command
+      try {
+        await this.client.status('INBOX', { messages: true });
+      } catch (error) {
+        this.logger.log('Connection test failed, reconnecting...', error.message);
+        this.isConnected = false;
+        await this.connect();
+      }
     }
   }
 
