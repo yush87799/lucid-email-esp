@@ -26,11 +26,16 @@ async function bootstrap() {
       // Allow requests with no origin (like mobile apps or curl requests)
       if (!origin) return callback(null, true);
       
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
+      // Normalize origin by removing trailing slash for comparison
+      const normalizedOrigin = origin.replace(/\/$/, '');
+      const normalizedAllowedOrigins = allowedOrigins.map(o => o.replace(/\/$/, ''));
+      
+      if (normalizedAllowedOrigins.includes(normalizedOrigin)) {
+        // Return the original origin (without trailing slash) to match browser expectations
+        return callback(null, normalizedOrigin);
       }
       
-      console.warn(`CORS blocked origin: ${origin}`);
+      console.warn(`CORS blocked origin: ${origin} (normalized: ${normalizedOrigin})`);
       return callback(new Error('Not allowed by CORS'), false);
     },
     credentials: true,
